@@ -1,0 +1,89 @@
+name: Parking weekly
+
+on:
+  schedule:
+    # Sunday 14:00 UTC (GMT). Note: UK switches to BST in summer.
+    - cron: "0 14 * * 0"
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      USERNAME: ${{ secrets.USERNAME }}
+      PASSWORD: ${{ secrets.PASSWORD }}
+      HEADLESS: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: |
+          python -m playwright install --with-deps chromium
+
+      - name: Run script
+        id: runscript
+        run: |
+          python parking.py
+
+      - name: Notify success (Pushover)
+        if: success()
+        run: |
+          python - <<'PY'
+          import os, requests
+          token=os.environ["PUSHOVER_TOKEN"]
+          user=os.environ["PUSHOVER_USER"]
+          r=requests.post(
+              "https://api.pushover.net/1/messages.json",
+              data={
+                  "token": token,
+                  "user": user,
+                  "title": "Parking job ✅",
+                  "message": "parking.py ran successfully (GitHub Actions).",
+                  "priority": 0
+              },
+              timeout=20
+          )
+          r.raise_for_status()
+          PY
+        env:
+          PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
+          PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}
+
+      - name: Notify failure (Pushover)
+        if: failure()
+        run: |
+          python - <<'PY'
+          import os, requests
+          token=os.environ["PUSHOVER_TOKEN"]
+          user=os.environ["PUSHOVER_USER"]
+          run_url=os.environ.get("GITHUB_SERVER_URL","") + "/" + os.environ.get("GITHUB_REPOSITORY","") + "/actions/runs/" + os.environ.get("GITHUB_RUN_ID","")
+          r=requests.post(
+              "https://api.pushover.net/1/messages.json",
+              data={
+                  "token": token,
+                  "user": user,
+                  "title": "Parking job ❌",
+                  "message": f"parking.py failed. Logs: {run_url}",
+                  "priority": 1
+              },
+              timeout=20
+          )
+          r.raise_for_status()
+          PY
+        env:
+          PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
+          PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}
